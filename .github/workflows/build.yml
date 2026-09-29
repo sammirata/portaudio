@@ -1,0 +1,97 @@
+name: build
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [sipradius]
+    tags: ["pa-v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: win32-x64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build portaudio_x64.dll
+        shell: cmd
+        run: |
+          copy ci\msvc\portaudio.vcxproj build\msvc\
+          copy ci\msvc\portaudio.def build\msvc\
+          cd build\msvc
+          msbuild /nologo /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0 portaudio.vcxproj
+      - name: Stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir dist
+          cp "build/msvc/x64/Release/portaudio_x64.dll" dist/
+          cp "build/msvc/x64/Release/portaudio_x64.lib" dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portaudio-win32-x64
+          path: dist/
+          retention-days: 30
+      - name: Attach to the tag's release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  macos:
+    name: darwin-universal
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build libportaudio.dylib
+        run: |
+          set -euo pipefail
+          ./configure MACOSX_DEPLOYMENT_TARGET=11.0
+          make -j"$(sysctl -n hw.ncpu)"
+          DYLIB=$(find lib/.libs -name 'libportaudio.*.dylib' -o -name 'libportaudio.dylib' | grep -v '\.dylib$' | head -1 || true)
+          [ -n "$DYLIB" ] || DYLIB=$(find lib/.libs -name 'libportaudio.dylib' -o -name 'libportaudio.*.dylib' | head -1)
+          lipo -info "$DYLIB"
+          lipo -info "$DYLIB" | grep -q x86_64
+          lipo -info "$DYLIB" | grep -q arm64
+          install_name_tool -id @rpath/libportaudio.dylib "$DYLIB"
+          mkdir dist
+          cp "$DYLIB" dist/libportaudio.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portaudio-darwin-universal
+          path: dist/
+          retention-days: 30
+      - name: Attach to the tag's release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  linux:
+    name: linux-x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build libportaudio.so.2
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+          ./configure --without-jack
+          make -j"$(nproc)"
+          objdump -p lib/.libs/libportaudio.so.2.0.0 | grep -E 'SONAME|NEEDED'
+          mkdir dist
+          cp lib/.libs/libportaudio.so.2.0.0 dist/libportaudio.so.2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portaudio-linux-x64
+          path: dist/
+          retention-days: 30
+      - name: Attach to the tag's release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
