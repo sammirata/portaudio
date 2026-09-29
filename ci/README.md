@@ -11,7 +11,7 @@ The workflow builds the three binaries naudiodon2 links and ships:
 | --------------------- | ------------- | ------------------------------------------------------------- |
 | `portaudio_x64.dll`   | windows-2022  | the vcxproj/def recipe in `ci/msvc/`, retargeted to v143      |
 | `portaudio_x64.lib`   | windows-2022  | (import library from the same build)                          |
-| `libportaudio.dylib`  | macos-14      | `./configure` (universal x86_64+arm64, min 10.6 as configure pins it), `-Werror` dropped from the generated Makefile, install id fixed to `@rpath/libportaudio.dylib` |
+| `libportaudio.dylib`  | macos-14      | `./configure --disable-mac-universal` once per arch (x86_64 min 10.13, arm64 min 11.0), `-Werror` dropped from the generated Makefile, merged with `lipo`, install id fixed to `@rpath/libportaudio.dylib` |
 | `libportaudio.so.2`   | ubuntu-latest | `./configure --without-jack` against ALSA, soname `libportaudio.so.2` |
 
 The recipes reproduce the ones upstream naudiodon2 documented for its

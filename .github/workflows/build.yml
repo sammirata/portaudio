@@ -49,18 +49,32 @@ jobs:
       - name: Build libportaudio.dylib
         run: |
           set -euo pipefail
-          ./configure
-          # configure.in forces -Werror on darwin; current clang warns on unused
-          # variables in pa_converters.c that older compilers accepted.
-          sed -i '' 's/ -Werror//' Makefile
-          ! grep -q -- '-Werror' Makefile
-          make -j"$(sysctl -n hw.ncpu)"
+          # One build per architecture, merged with lipo: configure's own
+          # universal probe silently drops x86_64 on current Xcode.
+          build_arch() {
+            arch=$1 min=$2 host=$3
+            git clean -fdxq -e dist
+            CC="clang -arch $arch" CFLAGS="-arch $arch -mmacosx-version-min=$min" \
+              LDFLAGS="-arch $arch -mmacosx-version-min=$min" \
+              ./configure --disable-mac-universal --host="$host"
+            # configure.in forces -Werror on darwin; current clang warns on
+            # unused variables that the v19.7.0-era compilers accepted.
+            sed -i '' 's/ -Werror//' Makefile
+            if grep -q -- '-Werror' Makefile; then echo "-Werror still present"; exit 1; fi
+            make -j"$(sysctl -n hw.ncpu)" lib/libportaudio.la
+            cp -L lib/.libs/libportaudio.dylib "dist/libportaudio-$arch.dylib"
+          }
           mkdir dist
-          cp -L lib/.libs/libportaudio.dylib dist/libportaudio.dylib
+          build_arch x86_64 10.13 x86_64-apple-darwin
+          build_arch arm64 11.0 aarch64-apple-darwin
+          lipo -create dist/libportaudio-x86_64.dylib dist/libportaudio-arm64.dylib \
+            -output dist/libportaudio.dylib
+          rm dist/libportaudio-*.dylib
           install_name_tool -id @rpath/libportaudio.dylib dist/libportaudio.dylib
-          lipo -info dist/libportaudio.dylib
-          lipo -info dist/libportaudio.dylib | grep -q x86_64
-          lipo -info dist/libportaudio.dylib | grep -q arm64
+          ARCHS=$(lipo -archs dist/libportaudio.dylib)
+          echo "archs: $ARCHS"
+          case "$ARCHS" in *x86_64*) ;; *) echo "missing x86_64"; exit 1;; esac
+          case "$ARCHS" in *arm64*) ;; *) echo "missing arm64"; exit 1;; esac
           otool -D dist/libportaudio.dylib
       - uses: actions/upload-artifact@v4
         with:
