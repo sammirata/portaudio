@@ -49,16 +49,19 @@ jobs:
       - name: Build libportaudio.dylib
         run: |
           set -euo pipefail
-          ./configure MACOSX_DEPLOYMENT_TARGET=11.0
+          ./configure
+          # configure.in forces -Werror on darwin; current clang warns on unused
+          # variables in pa_converters.c that older compilers accepted.
+          sed -i '' 's/ -Werror//' Makefile
+          ! grep -q -- '-Werror' Makefile
           make -j"$(sysctl -n hw.ncpu)"
-          DYLIB=$(find lib/.libs -name 'libportaudio.*.dylib' -o -name 'libportaudio.dylib' | grep -v '\.dylib$' | head -1 || true)
-          [ -n "$DYLIB" ] || DYLIB=$(find lib/.libs -name 'libportaudio.dylib' -o -name 'libportaudio.*.dylib' | head -1)
-          lipo -info "$DYLIB"
-          lipo -info "$DYLIB" | grep -q x86_64
-          lipo -info "$DYLIB" | grep -q arm64
-          install_name_tool -id @rpath/libportaudio.dylib "$DYLIB"
           mkdir dist
-          cp "$DYLIB" dist/libportaudio.dylib
+          cp -L lib/.libs/libportaudio.dylib dist/libportaudio.dylib
+          install_name_tool -id @rpath/libportaudio.dylib dist/libportaudio.dylib
+          lipo -info dist/libportaudio.dylib
+          lipo -info dist/libportaudio.dylib | grep -q x86_64
+          lipo -info dist/libportaudio.dylib | grep -q arm64
+          otool -D dist/libportaudio.dylib
       - uses: actions/upload-artifact@v4
         with:
           name: portaudio-darwin-universal
